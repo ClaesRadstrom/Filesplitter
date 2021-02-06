@@ -42,5 +42,65 @@ namespace Filesplitter
             return rootCommand.InvokeAsync(args).Result;
 //            Console.WriteLine("Hello World!");
         }
+        
+        static void Main2(string[] args)
+        {
+            var command = "j"; //args[0];
+            
+            if (!command.Equals("s") || !command.Equals("j"))
+                Console.WriteLine("Only valid commands are s (split) or j (join)");
+            
+            var fileName = "/Users/claesradstrom/RiderProjects/FileMgr/FileMgr/test.b64";
+            //var fileName = args[1];
+
+            var chunkSize = 15000;
+                
+            if (command.Equals("s"))
+            {
+                //chunkSize = Convert.ToInt32(args[2]) ;
+                SplitFile(fileName, chunkSize);
+            }
+            
+            if (command.Equals("j"))
+            {
+                JoinFiles(fileName);
+            }
+            
+            Console.WriteLine("Done");
+        }
+        
+        private static void SplitFile(string fileName, int chunkSize)
+        {
+            var fileContents = File.ReadAllBytes(fileName);
+            var filepartNr = 1;
+
+            for (var i = 0; i < fileContents.Length; i += chunkSize)
+            {
+                var data = fileContents.Skip(i).Take(chunkSize).ToArray();
+                var newFilename = $"{fileName}.{filepartNr.ToString()}"; 
+                File.WriteAllBytes(newFilename, data);
+
+                filepartNr++;
+            }
+        }
+        
+        private static void JoinFiles(string fileName)
+        {
+            byte[] resultArray = new byte[0];
+            
+            for (var i = 1; i < 1000; i++)
+            {
+                var fragmentFileName = $"{fileName}.{i.ToString()}";
+                
+                if (!File.Exists(fragmentFileName))
+                    break;
+                
+                var fileContents = File.ReadAllBytes(fragmentFileName);
+                
+                resultArray = resultArray.Concat(fileContents).ToArray();
+            }
+            
+            File.WriteAllBytes(fileName, resultArray);
+        }
     }
 }
