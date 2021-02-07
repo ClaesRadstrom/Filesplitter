@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "Filesplitter": {
+      "commandName": "Project",
+      "commandLineArgs": "join -b  -f test.dll.b64.001 -o test2.dll"
+    }
+  }
+}

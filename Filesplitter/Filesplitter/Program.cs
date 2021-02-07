@@ -1,106 +1,146 @@
-﻿using System;
-using System.CommandLine;
-using System.CommandLine.Invocation;
+﻿using CommandLine;
+using System;
 using System.IO;
+using System.Linq;
+using System.Text;
 
 namespace Filesplitter
 {
     class Program
     {
+        private const string b64 = "b64.";
+        private const string FileFormat = "000";
+
+        [Verb("split", HelpText = "Split file into parts.")]
+        class SplitOptions
+        {
+            [Option('c', "chunk", Required = false, Default = 20,  HelpText = "Size of splitted files in kb.")]
+            public int ChunkSize { get; set; }
+            
+            [Option('b', "base64", Required = false, Default = false,  HelpText = "Base64 encode splitted files.")]
+            public bool Base64Encode { get; set; }
+
+            [Option('d', "dryrun", Required = false, Default = false, HelpText = "Perform a dryrun without creating any real files.")]
+            public bool Dryrun { get; set; }
+
+            [Option('f', "file", Required = true, HelpText = "File to split.")]
+            public string Filename { get; set; }
+        }
+
+        [Verb("join", HelpText = "Join file parts to one file (max 100 parts).")]
+        class JoinOptions
+        {
+            [Option('f', "file", Required = true, HelpText = "First file part in series.")]
+            public string Filename { get; set; }
+
+            [Option('o', "outfile", Required = false, HelpText = "Override filename of joined file.")]
+            public string OutFilename { get; set; }
+
+            [Option('b', "base64Decode", Required = false, Default = false, HelpText = "Base64 decode joined file.")]
+            public bool Base64Decode { get; set; }
+        }
+
         static int Main(string[] args)
         {
-            // Create a root command with some options
-            var rootCommand = new RootCommand
-            {
-                new Option<string>(
-                    "-f",
-                    description: "Name of the file to process"),
+            return Parser.Default.ParseArguments<SplitOptions, JoinOptions>(args)
+               .MapResult(
+                 (SplitOptions opts) => RunAddAndReturnExitCode(opts),
+                 (JoinOptions opts) => RunCommitAndReturnExitCode(opts),
+                 errs => 1);
+        }
 
-                new Option<int>(
-                    "-d",
-                    getDefaultValue: () => 42,
-                    description: "An option whose argument is parsed as an int"),
-                new Option<bool>(
-                    "--bool-option",
-                    "An option whose argument is parsed as a bool"),
-                new Option<FileInfo>(
-                    "--file-option",
-                    "An option whose argument is parsed as a FileInfo")
-            };
-
-            rootCommand.Description = "My sample app";
-
-            // Note that the parameters of the handler method are matched according to the names of the options
-            rootCommand.Handler = CommandHandler.Create<int, bool, FileInfo>((intOption, boolOption, fileOption) =>
-            {
-                Console.WriteLine($"The value for --int-option is: {intOption}");
-                Console.WriteLine($"The value for --bool-option is: {boolOption}");
-                Console.WriteLine($"The value for --file-option is: {fileOption?.FullName ?? "null"}");
-            });
-
-            // Parse the incoming args and invoke the handler
-            return rootCommand.InvokeAsync(args).Result;
-//            Console.WriteLine("Hello World!");
+        private static int RunAddAndReturnExitCode(SplitOptions opts)
+        {
+            return SplitFile(opts.Filename, opts.ChunkSize, opts.Base64Encode, opts.Dryrun);
         }
         
-        static void Main2(string[] args)
+        private static int  RunCommitAndReturnExitCode(JoinOptions opts)
         {
-            var command = "j"; //args[0];
-            
-            if (!command.Equals("s") || !command.Equals("j"))
-                Console.WriteLine("Only valid commands are s (split) or j (join)");
-            
-            var fileName = "/Users/claesradstrom/RiderProjects/FileMgr/FileMgr/test.b64";
-            //var fileName = args[1];
-
-            var chunkSize = 15000;
-                
-            if (command.Equals("s"))
-            {
-                //chunkSize = Convert.ToInt32(args[2]) ;
-                SplitFile(fileName, chunkSize);
-            }
-            
-            if (command.Equals("j"))
-            {
-                JoinFiles(fileName);
-            }
-            
-            Console.WriteLine("Done");
+            return JoinFiles(opts.Filename, opts.OutFilename, opts.Base64Decode);
         }
-        
-        private static void SplitFile(string fileName, int chunkSize)
+
+        private static void VerifyFilename(string fileName)
         {
-            var fileContents = File.ReadAllBytes(fileName);
+            var currentPath = Directory.GetCurrentDirectory();
+
+            if (!File.Exists(Path.Combine(currentPath, fileName)))
+            {
+                Console.WriteLine("Missing file: " + fileName);
+                Environment.Exit(-1);
+            }
+        }
+
+        private static int SplitFile(string fileName, int chunkSize, bool base64Encode, bool dryRun)
+        {
+            Console.WriteLine($"Splitting file {fileName} into chunks of {chunkSize} kb");
+
+            VerifyFilename(fileName);
+
+            var filePath = Path.Combine(Directory.GetCurrentDirectory(), fileName);
+
+            var fileContents = File.ReadAllBytes(filePath);
+
+            var encodedContents = fileContents;
+            var addedExtension = string.Empty;
+
+            if (base64Encode)   
+            {
+                var base64String = Convert.ToBase64String(fileContents);
+                encodedContents = Encoding.ASCII.GetBytes(base64String);
+                addedExtension = b64;
+            }
+
+            chunkSize = chunkSize * 1024;
+
             var filepartNr = 1;
-
             for (var i = 0; i < fileContents.Length; i += chunkSize)
             {
-                var data = fileContents.Skip(i).Take(chunkSize).ToArray();
-                var newFilename = $"{fileName}.{filepartNr.ToString()}"; 
-                File.WriteAllBytes(newFilename, data);
+                var data = encodedContents.Skip(i).Take(chunkSize).ToArray();
+                var newFilename = $"{fileName}.{addedExtension}{filepartNr.ToString(FileFormat)}";
+                var newFilepath = Path.Combine(Directory.GetCurrentDirectory(), newFilename);
+
+                if (!dryRun) File.WriteAllBytes(newFilepath, data);
+                if (dryRun) Console.WriteLine($"Dry wrote file: {newFilename}");
 
                 filepartNr++;
             }
+
+            return 0;
         }
-        
-        private static void JoinFiles(string fileName)
+
+        private static int JoinFiles(string fileName, string outFilename, bool base64Decode)
         {
+            VerifyFilename(fileName);
+
+            fileName = fileName.Replace(".001", "");
+
             byte[] resultArray = new byte[0];
             
-            for (var i = 1; i < 1000; i++)
+            for (var i = 1; i < 100; i++)
             {
-                var fragmentFileName = $"{fileName}.{i.ToString()}";
+                var fragmentFileName = $"{fileName}.{i.ToString(FileFormat)}";
                 
-                if (!File.Exists(fragmentFileName))
+                if (!File.Exists(Path.Combine(Directory.GetCurrentDirectory(), fragmentFileName)))
                     break;
                 
-                var fileContents = File.ReadAllBytes(fragmentFileName);
+                var fileContents = File.ReadAllBytes(Path.Combine(Directory.GetCurrentDirectory(), fragmentFileName));
                 
                 resultArray = resultArray.Concat(fileContents).ToArray();
             }
-            
-            File.WriteAllBytes(fileName, resultArray);
+
+            if (string.IsNullOrEmpty(outFilename))
+                outFilename = fileName.Replace(".b64", "");
+
+            if (base64Decode)
+            { 
+                var base64EncodedData = Encoding.ASCII.GetString(resultArray);
+                var orgByteData = Convert.FromBase64String(base64EncodedData);
+                resultArray = orgByteData;
+            }
+
+            File.WriteAllBytes(Path.Combine(Directory.GetCurrentDirectory(), outFilename), resultArray);
+
+            return 0;
         }
     }
 }
