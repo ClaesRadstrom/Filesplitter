@@ -93,7 +93,7 @@ namespace Filesplitter
             chunkSize = chunkSize * 1024;
 
             var filepartNr = 1;
-            for (var i = 0; i < fileContents.Length; i += chunkSize)
+            for (var i = 0; i < encodedContents.Length; i += chunkSize)
             {
                 var data = encodedContents.Skip(i).Take(chunkSize).ToArray();
                 var newFilename = $"{fileName}.{addedExtension}{filepartNr.ToString(FileFormat)}";
